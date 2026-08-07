@@ -1,0 +1,10 @@
+# Normalize all text files to LF in the repository. This project's code runs in
+# Linux containers, where CRLF endings break shell scripts and some tooling.
+* text=auto eol=lf
+
+# Binary assets: never touch line endings.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
