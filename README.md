@@ -33,7 +33,7 @@ OANDA v20  ──►  Market Data ──►  Redis Streams ──►  Strategy E
 
 ## Build roadmap
 
-- [ ] **Step 1** — Repo + local infra (Docker Compose: Postgres/Timescale + Redis)
+- [x] **Step 1** — Repo + local infra (Docker Compose: Postgres/Timescale + Redis)
 - [ ] **Step 2** — OANDA async client wrapper
 - [ ] **Step 3** — Market-data service (stream + store candles)
 - [ ] **Step 4** — Strategy interface + backtest engine
@@ -53,4 +53,27 @@ To avoid clashing with other local stacks, this project uses non-default host po
 
 ## Getting started
 
-_Work in progress — being built step by step._
+Prerequisites: Docker Desktop, Python 3.12, and [uv](https://docs.astral.sh/uv/).
+
+```bash
+# 1. Configure environment
+cp .env.example .env        # then edit .env with your OANDA practice credentials
+
+# 2. Start local infrastructure (Postgres/TimescaleDB + Redis)
+docker compose up -d
+docker compose ps           # both services should report "healthy"
+
+# 3. Install Python deps and run
+uv run oft
+```
+
+Sanity checks:
+
+```bash
+# TimescaleDB extension is active
+docker exec oft-postgres psql -U oft -d oft -tAc \
+  "SELECT extname, extversion FROM pg_extension WHERE extname='timescaledb';"
+
+# Redis responds
+docker exec oft-redis redis-cli ping   # -> PONG
+```
