@@ -1,0 +1,51 @@
+# Local development infrastructure for OFT.
+# Brings up the two stateful dependencies every service needs:
+#   - PostgreSQL + TimescaleDB  (relational state + time-series candles/ticks)
+#   - Redis                     (message bus between services, via Redis Streams)
+#
+# Host ports are deliberately NON-default (5442 / 6389) so this project never
+# collides with other Docker stacks already running on the machine.
+
+services:
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    container_name: oft-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      # host:container — we expose 5442 on the host, Postgres still listens on 5432 inside.
+      - "${POSTGRES_PORT:-5442}:5432"
+    volumes:
+      # Named volume => data survives `docker compose down` (only `down -v` wipes it).
+      - oft_pgdata:/var/lib/postgresql/data
+      # *.sql files here run once, on first init of an empty data volume.
+      - ./docker/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # Compose reports "healthy" only once Postgres actually accepts connections.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: oft-redis
+    restart: unless-stopped
+    # appendonly => Redis persists to disk, so Streams survive a restart.
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6389}:6379"
+    volumes:
+      - oft_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  oft_pgdata:
+  oft_redisdata:
