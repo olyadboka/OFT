@@ -13,7 +13,7 @@ Public API — re-exported here so callers write `from oft.broker import Broker`
 instead of reaching into submodules. Uncomment each line as you build it:
 """
 
-# from oft.broker.base import Broker  # uncomment once base.py defines it
+from oft.broker.base import Broker
 from oft.broker.models import (
     AccountSummary,
     Candle,
@@ -25,7 +25,7 @@ from oft.broker.models import (
 )
 
 __all__ = [
-    # "Broker",  # uncomment alongside the import above
+    "Broker",
     "AccountSummary",
     "Candle",
     "Order",
