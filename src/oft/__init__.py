@@ -1,2 +1,7 @@
+import sys
+
+from oft.cli import main as _cli_main
+
+
 def main() -> None:
-    print("Hello from oft!")
+    sys.exit(_cli_main())
