@@ -123,6 +123,8 @@ class Order(_Base):
     units: Decimal                       # SIGNED: + buy/long, - sell/short
     type: OrderType = OrderType.MARKET
     price: Decimal | None = Field(default=None, gt=0)   # required only for LIMIT
+    stop_loss: Decimal | None = Field(default=None, gt=0)
+    take_profit: Decimal | None = Field(default=None, gt=0)
 
     @field_validator("units")
     @classmethod

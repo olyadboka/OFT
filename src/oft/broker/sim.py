@@ -68,6 +68,7 @@ class SimBroker(Broker):
             for name, px in (instruments or {"EUR_USD": "1.10000"}).items()
         }
         self._holdings: dict[str, _Holding] = {}
+        self._brackets: dict[str, tuple[Decimal | None, Decimal | None]] = {}
         self._order_seq = 0
 
     async def get_account_summary(self) -> AccountSummary:
@@ -123,6 +124,7 @@ class SimBroker(Broker):
         while True:
             for name in instruments:
                 self._advance(name)
+                self._check_brackets(name)
                 yield self._quote(name)
             await asyncio.sleep(self._tick_seconds)
 
@@ -133,6 +135,7 @@ class SimBroker(Broker):
         if fill_price is None:
             return OrderResult(order_id=self._next_id(), filled=False, time=self._now())
         self._apply_fill(order.instrument, order.units, fill_price)
+        self._set_bracket(order)
         return OrderResult(
             order_id=self._next_id(),
             filled=True,
@@ -177,11 +180,38 @@ class SimBroker(Broker):
         self._balance += realized
         if new_units == 0:
             self._holdings.pop(instrument, None)
+            self._brackets.pop(instrument, None)
         else:
             self._holdings[instrument] = _Holding(
                 units=new_units, avg_price=new_avg.quantize(_PRICE_Q, ROUND_HALF_UP)
             )
         return realized
+
+    def _set_bracket(self, order: Order) -> None:
+        if order.instrument not in self._holdings:
+            self._brackets.pop(order.instrument, None)
+        elif order.stop_loss is not None or order.take_profit is not None:
+            self._brackets[order.instrument] = (order.stop_loss, order.take_profit)
+
+    def _check_brackets(self, instrument: str) -> None:
+        bracket = self._brackets.get(instrument)
+        holding = self._holdings.get(instrument)
+        if bracket is None or holding is None:
+            return
+        stop_loss, take_profit = bracket
+        quote = self._quote(instrument)
+        if holding.units > 0:
+            price = quote.bid
+            hit = (stop_loss is not None and price <= stop_loss) or (
+                take_profit is not None and price >= take_profit
+            )
+        else:
+            price = quote.ask
+            hit = (stop_loss is not None and price >= stop_loss) or (
+                take_profit is not None and price <= take_profit
+            )
+        if hit:
+            self._apply_fill(instrument, -holding.units, price)
 
     def _advance(self, instrument: str) -> None:
         current = float(self._mids[instrument])
