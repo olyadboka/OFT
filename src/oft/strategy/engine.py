@@ -10,8 +10,12 @@ from oft.broker.models import Order, OrderType
 from oft.strategy.base import Signal, Strategy
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from oft.broker.models import Price
     from oft.risk.base import RiskDecision, RiskManager
+
+    OnTick = Callable[[Price], Awaitable[None]]
 
 
 class TradingEngine:
@@ -39,13 +43,17 @@ class TradingEngine:
     def decisions(self) -> list[RiskDecision]:
         return self._decisions
 
-    async def run(self, max_ticks: int | None = None) -> None:
+    async def run(
+        self, max_ticks: int | None = None, on_tick: OnTick | None = None
+    ) -> None:
         ticks = 0
         async for price in self._broker.stream_prices([self._instrument]):
             signal = self._strategy.on_price(price)
             if signal is not Signal.HOLD:
                 self._signals.append(signal)
                 await self._execute(signal, price)
+            if on_tick is not None:
+                await on_tick(price)
             ticks += 1
             if max_ticks is not None and ticks >= max_ticks:
                 return
