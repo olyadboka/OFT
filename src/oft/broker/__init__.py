@@ -23,9 +23,11 @@ from oft.broker.models import (
     Position,
     Price,
 )
+from oft.broker.sim import SimBroker
 
 __all__ = [
     "Broker",
+    "SimBroker",
     "AccountSummary",
     "Candle",
     "Order",
