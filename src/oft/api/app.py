@@ -10,11 +10,9 @@ from pydantic import BaseModel, Field
 from oft.backtest import Backtester, by_return, by_sharpe, sweep
 from oft.broker import SimBroker
 from oft.risk import FixedFractionalRisk
-from oft.strategy import Breakout, RsiStrategy, SmaCrossover, Strategy
+from oft.strategy import STRATEGIES, make_strategy
 
 app = FastAPI(title="OFT", version="0.1.0")
-
-_STRATEGIES = {"sma": SmaCrossover, "rsi": RsiStrategy, "breakout": Breakout}
 
 
 class BacktestRequest(BaseModel):
@@ -49,21 +47,15 @@ class SweepRequest(BaseModel):
     top: int = Field(default=5, gt=0, le=50)
 
 
-def _make_strategy(name: str, params: dict) -> Strategy:
-    if name not in _STRATEGIES:
-        raise ValueError(f"unknown strategy: {name!r}")
-    return _STRATEGIES[name](**params)
-
-
 @app.get("/health")
 async def health() -> dict:
-    return {"status": "ok", "strategies": sorted(_STRATEGIES)}
+    return {"status": "ok", "strategies": sorted(STRATEGIES)}
 
 
 @app.post("/backtest", response_model=BacktestResponse)
 async def run_backtest(request: BacktestRequest) -> BacktestResponse:
     try:
-        strategy = _make_strategy(request.strategy, request.params)
+        strategy = make_strategy(request.strategy, request.params)
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     broker = SimBroker(seed=request.seed, tick_seconds=0, volatility=request.volatility)
@@ -84,7 +76,7 @@ async def run_backtest(request: BacktestRequest) -> BacktestResponse:
 
 @app.post("/sweep")
 async def run_sweep(request: SweepRequest) -> dict:
-    if request.strategy not in _STRATEGIES:
+    if request.strategy not in STRATEGIES:
         raise HTTPException(
             status_code=400, detail=f"unknown strategy: {request.strategy!r}"
         )
@@ -93,7 +85,7 @@ async def run_sweep(request: SweepRequest) -> dict:
         broker = SimBroker(
             seed=request.seed, tick_seconds=0, volatility=request.volatility
         )
-        strategy = _make_strategy(request.strategy, params)
+        strategy = make_strategy(request.strategy, params)
         return Backtester(broker, strategy, "EUR_USD", risk=FixedFractionalRisk())
 
     objective = by_return if request.objective == "return" else by_sharpe

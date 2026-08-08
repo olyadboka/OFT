@@ -4,6 +4,7 @@ from oft.strategy.base import Signal, Strategy
 from oft.strategy.breakout import Breakout
 from oft.strategy.crossover import SmaCrossover
 from oft.strategy.engine import TradingEngine
+from oft.strategy.registry import STRATEGIES, make_strategy
 from oft.strategy.rsi import RsiStrategy
 
 __all__ = [
@@ -13,4 +14,6 @@ __all__ = [
     "RsiStrategy",
     "Breakout",
     "TradingEngine",
+    "STRATEGIES",
+    "make_strategy",
 ]
