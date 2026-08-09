@@ -1,4 +1,4 @@
-# OFT — Olya Forex Trading
+# OFT — Olyad Forex Trading
 
 A self-hosted, hybrid forex trading system: an automated strategy bot plus a
 monitoring/control dashboard, trading through the **OANDA v20** API.
