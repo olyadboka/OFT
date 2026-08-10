@@ -22,12 +22,14 @@ async def _store_or_503(action):
     try:
         return await action(ResultStore())
     except (OSError, asyncpg.PostgresError) as exc:
-        raise HTTPException(status_code=503, detail=f"database unavailable: {exc}") from exc
+        raise HTTPException(
+            status_code=503, detail=f"database unavailable: {exc}") from exc
 
 
 class BacktestRequest(BaseModel):
     strategy: str = "sma"
-    params: dict[str, Any] = Field(default_factory=lambda: {"fast": 10, "slow": 15})
+    params: dict[str, Any] = Field(default_factory=lambda: {
+                                   "fast": 10, "slow": 15})
     bars: int = Field(default=500, gt=0, le=20000)
     seed: int = 11
     volatility: float = 0.001
@@ -79,7 +81,8 @@ async def run_backtest(request: BacktestRequest) -> BacktestResponse:
         strategy = make_strategy(request.strategy, request.params)
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    broker = SimBroker(seed=request.seed, tick_seconds=0, volatility=request.volatility)
+    broker = SimBroker(seed=request.seed, tick_seconds=0,
+                       volatility=request.volatility)
     risk = FixedFractionalRisk(risk_per_trade=request.risk_per_trade)
     backtester = Backtester(broker, strategy, "EUR_USD", risk=risk)
     result = await backtester.run(request.bars)
