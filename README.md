@@ -57,9 +57,16 @@ uv run oft backtest --strategy sma --param fast=10 --param slow=15 --bars 500
 # Sweep a parameter grid, ranked by Sharpe
 uv run oft sweep --strategy sma --axis fast=5,10,20 --axis slow=15,20,30 --bars 500
 
+# Save a backtest to the database, then list recent stored runs
+uv run oft backtest --strategy sma --param fast=10 --param slow=15 --bars 500 --persist
+uv run oft results --limit 10
+
 # Serve the HTTP API (http://127.0.0.1:8000/docs for the OpenAPI UI)
 uv run oft serve
 ```
+
+> `--persist` and `oft results` need the Postgres/TimescaleDB container up
+> (`docker compose up -d`). Without it they exit with a clear error.
 
 Strategies: `sma` (`fast`,`slow`), `rsi` (`window`,`oversold`,`overbought`), `breakout` (`window`).
 
@@ -73,12 +80,21 @@ curl -s -X POST localhost:8000/backtest \
 curl -s -X POST localhost:8000/sweep \
   -H 'content-type: application/json' \
   -d '{"strategy":"sma","grid":{"fast":[5,10],"slow":[15,20]},"bars":300}'
+
+# Persist a backtest (add "persist": true), then query and delete stored runs
+curl -s -X POST localhost:8000/backtest \
+  -H 'content-type: application/json' \
+  -d '{"strategy":"sma","params":{"fast":10,"slow":15},"bars":500,"persist":true}'
+curl -s 'localhost:8000/results?limit=10'
+curl -s -X DELETE localhost:8000/results/1
 ```
+
+The persistence endpoints return HTTP 503 when the database is unreachable.
 
 ### Tests
 
 ```bash
-uv run pytest        # 92 tests (DB-backed persistence tests skip if Postgres is down)
+uv run pytest        # 95 tests (DB-backed persistence tests skip if Postgres is down)
 ```
 
 ## Local ports
