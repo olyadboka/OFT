@@ -7,6 +7,7 @@ from typing import Any
 
 import asyncpg
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from oft.backtest import Backtester, by_return, by_sharpe, sweep
@@ -17,6 +18,13 @@ from oft.risk import FixedFractionalRisk
 from oft.strategy import STRATEGIES, make_strategy
 
 app = FastAPI(title="OFT", version="0.1.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 async def _store_or_503(action):
