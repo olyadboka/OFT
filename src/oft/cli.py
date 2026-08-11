@@ -7,8 +7,9 @@ import argparse
 import asyncio
 
 from oft.backtest import Backtester, by_return, by_sharpe, sweep
-from oft.broker import SimBroker
-from oft.persistence import ResultStore
+from oft.broker import ReplayBroker, SimBroker
+from oft.marketdata import ingest_synthetic
+from oft.persistence import CandleStore, ResultStore
 from oft.risk import FixedFractionalRisk
 from oft.strategy import STRATEGIES, make_strategy
 
@@ -44,12 +45,30 @@ def _cmd_backtest(args) -> int:
     except (TypeError, ValueError) as exc:
         print(f"error: {exc}")
         return 2
-    broker = SimBroker(seed=args.seed, tick_seconds=0,
-                       volatility=args.volatility)
+    if args.source == "stored":
+        try:
+            candles = asyncio.run(
+                CandleStore().get_candles(args.instrument, limit=args.bars)
+            )
+        except Exception as exc:  # noqa: BLE001 - db down => clear message, exit 1
+            print(f"error: {exc}")
+            return 1
+        if not candles:
+            print(f"error: no stored candles for {args.instrument!r}")
+            return 1
+        broker = ReplayBroker(args.instrument, candles)
+        bars = len(candles)
+    else:
+        broker = SimBroker(
+            seed=args.seed, tick_seconds=0, volatility=args.volatility,
+            instruments={args.instrument: "1.10000"},
+        )
+        bars = args.bars
     risk = FixedFractionalRisk(risk_per_trade=args.risk)
-    backtester = Backtester(broker, strategy, "EUR_USD", risk=risk)
-    result = asyncio.run(backtester.run(args.bars))
+    backtester = Backtester(broker, strategy, args.instrument, risk=risk)
+    result = asyncio.run(backtester.run(bars))
     print(f"strategy        {strategy.name}")
+    print(f"source          {args.source}")
     print(result.report())
     if args.persist:
         try:
@@ -82,6 +101,46 @@ def _cmd_results(args) -> int:
         print(
             f"{row.id:>6}  {row.strategy:<24}  "
             f"return={float(row.total_return):+.2%}  sharpe={row.sharpe:+.4f}"
+        )
+    return 0
+
+
+def _cmd_ingest(args) -> int:
+    try:
+        ingested = asyncio.run(
+            ingest_synthetic(
+                args.instrument,
+                granularity=args.granularity,
+                count=args.count,
+                seed=args.seed,
+                start_price=args.start_price,
+            )
+        )
+    except ValueError as exc:
+        print(f"error: {exc}")
+        return 2
+    except Exception as exc:  # noqa: BLE001 - db down => clear message, exit 1
+        print(f"error: {exc}")
+        return 1
+    print(f"ingested        {ingested} {args.granularity} candles for {args.instrument}")
+    return 0
+
+
+def _cmd_candles(args) -> int:
+    try:
+        candles = asyncio.run(
+            CandleStore().get_candles(args.instrument, limit=args.limit)
+        )
+    except Exception as exc:  # noqa: BLE001 - db down => clear message, exit 1
+        print(f"error: {exc}")
+        return 1
+    if not candles:
+        print("no stored candles")
+        return 0
+    for candle in candles:
+        print(
+            f"{candle.time.isoformat()}  O {candle.open}  H {candle.high}  "
+            f"L {candle.low}  C {candle.close}  V {candle.volume}"
         )
     return 0
 
@@ -134,6 +193,9 @@ def _build_parser() -> argparse.ArgumentParser:
     backtest.add_argument("--risk", default="0.01")
     backtest.add_argument("--persist", action="store_true",
                           help="save result to the database")
+    backtest.add_argument("--source", default="sim", choices=["sim", "stored"],
+                          help="price tape: synthetic or stored candles")
+    backtest.add_argument("--instrument", default="EUR_USD")
     backtest.set_defaults(func=_cmd_backtest)
 
     swept = sub.add_parser("sweep", help="sweep a parameter grid")
@@ -156,6 +218,19 @@ def _build_parser() -> argparse.ArgumentParser:
         "results", help="list recent stored backtest results")
     results.add_argument("--limit", type=int, default=10)
     results.set_defaults(func=_cmd_results)
+
+    ingest = sub.add_parser("ingest", help="ingest synthetic candles to the store")
+    ingest.add_argument("--instrument", default="EUR_USD")
+    ingest.add_argument("--granularity", default="M1")
+    ingest.add_argument("--count", type=int, default=500)
+    ingest.add_argument("--seed", type=int, default=11)
+    ingest.add_argument("--start-price", dest="start_price", default="1.10000")
+    ingest.set_defaults(func=_cmd_ingest)
+
+    candles = sub.add_parser("candles", help="list stored candles for an instrument")
+    candles.add_argument("--instrument", default="EUR_USD")
+    candles.add_argument("--limit", type=int, default=20)
+    candles.set_defaults(func=_cmd_candles)
 
     return parser
 
