@@ -8,16 +8,16 @@ monitoring/control dashboard, trading through the **OANDA v20** API.
 
 ## Stack
 
-| Layer            | Tech                                   |
-| ---------------- | -------------------------------------- |
-| Services / bot   | Python 3.12 (asyncio)                  |
-| Broker           | OANDA v20 (REST + streaming)           |
-| Database         | PostgreSQL + TimescaleDB               |
-| Message bus      | Redis Streams                          |
-| Dashboard API    | FastAPI + WebSocket                    |
-| Frontend         | React + TypeScript + lightweight-charts|
-| Package manager  | uv                                     |
-| Local infra      | Docker Compose                         |
+| Layer           | Tech                                    |
+| --------------- | --------------------------------------- |
+| Services / bot  | Python 3.12 (asyncio)                   |
+| Broker          | OANDA v20 (REST + streaming)            |
+| Database        | PostgreSQL + TimescaleDB                |
+| Message bus     | Redis Streams                           |
+| Dashboard API   | FastAPI + WebSocket                     |
+| Frontend        | React + TypeScript + lightweight-charts |
+| Package manager | uv                                      |
+| Local infra     | Docker Compose                          |
 
 ## Architecture (high level)
 
