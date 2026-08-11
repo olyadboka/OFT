@@ -43,6 +43,7 @@ real OANDA adapter can drop in later without touching the strategy/risk/backtest
 - [x] **Step 4** — Trading engine + backtest runner with metrics (return, drawdown, Sharpe, win-rate)
 - [x] **Step 5** — Risk layer (fixed-fractional sizing + drawdown kill-switch) & bracket orders (SL/TP)
 - [x] **Step 6** — Parameter sweep optimizer + result persistence (TimescaleDB) + HTTP API + CLI
+- [x] **Market data** — TimescaleDB candle store (hypertable) + synthetic ingest + `ReplayBroker` to backtest on stored history (API/CLI wired)
 - [ ] **Step 7** — Real OANDA `Broker` adapter (practice account)
 - [ ] **Step 8** — React dashboard, harden, observe, go live
 
@@ -61,12 +62,25 @@ uv run oft sweep --strategy sma --axis fast=5,10,20 --axis slow=15,20,30 --bars 
 uv run oft backtest --strategy sma --param fast=10 --param slow=15 --bars 500 --persist
 uv run oft results --limit 10
 
+# Ingest synthetic candles into TimescaleDB, then inspect them
+uv run oft ingest --instrument EUR_USD --granularity M1 --count 500 --seed 11
+uv run oft candles --instrument EUR_USD --limit 20
+
+# Backtest on the *stored* candle history instead of synthetic prices
+uv run oft backtest --strategy sma --param fast=5 --param slow=20 \
+  --source stored --instrument EUR_USD
+
 # Serve the HTTP API (http://127.0.0.1:8000/docs for the OpenAPI UI)
 uv run oft serve
 ```
 
-> `--persist` and `oft results` need the Postgres/TimescaleDB container up
+> `--persist`, `oft results`, `oft ingest`, `oft candles`, and
+> `--source stored` need the Postgres/TimescaleDB container up
 > (`docker compose up -d`). Without it they exit with a clear error.
+>
+> Ingested candles land on canonical bucket boundaries (an `M1` bar at `:00`)
+> and upsert by `(instrument, time)`, so re-ingesting the same window is
+> idempotent rather than duplicating rows.
 
 Strategies: `sma` (`fast`,`slow`), `rsi` (`window`,`oversold`,`overbought`), `breakout` (`window`).
 
@@ -87,14 +101,25 @@ curl -s -X POST localhost:8000/backtest \
   -d '{"strategy":"sma","params":{"fast":10,"slow":15},"bars":500,"persist":true}'
 curl -s 'localhost:8000/results?limit=10'
 curl -s -X DELETE localhost:8000/results/1
+
+# Ingest candles, list them, and backtest on the stored history
+curl -s -X POST localhost:8000/candles/ingest \
+  -H 'content-type: application/json' \
+  -d '{"instrument":"EUR_USD","granularity":"M1","count":500,"seed":11}'
+curl -s 'localhost:8000/candles?instrument=EUR_USD&limit=20'
+curl -s -X POST localhost:8000/backtest \
+  -H 'content-type: application/json' \
+  -d '{"strategy":"sma","params":{"fast":5,"slow":20},"source":"stored","instrument":"EUR_USD"}'
 ```
 
-The persistence endpoints return HTTP 503 when the database is unreachable.
+The persistence and candle endpoints return HTTP 503 when the database is
+unreachable; `source":"stored"` returns HTTP 400 if no candles are stored for
+the instrument.
 
 ### Tests
 
 ```bash
-uv run pytest        # 95 tests (DB-backed persistence tests skip if Postgres is down)
+uv run pytest        # 107 tests (DB-backed candle/persistence tests skip if Postgres is down)
 ```
 
 ## Local ports
