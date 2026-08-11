@@ -23,11 +23,13 @@ from oft.broker.models import (
     Position,
     Price,
 )
+from oft.broker.replay import ReplayBroker
 from oft.broker.sim import SimBroker
 
 __all__ = [
     "Broker",
     "SimBroker",
+    "ReplayBroker",
     "AccountSummary",
     "Candle",
     "Order",
