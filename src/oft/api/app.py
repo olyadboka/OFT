@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 import asyncpg
@@ -9,8 +10,9 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from oft.backtest import Backtester, by_return, by_sharpe, sweep
-from oft.broker import SimBroker
-from oft.persistence import ResultStore
+from oft.broker import ReplayBroker, SimBroker
+from oft.marketdata import ingest_synthetic
+from oft.persistence import CandleStore, ResultStore
 from oft.risk import FixedFractionalRisk
 from oft.strategy import STRATEGIES, make_strategy
 
@@ -26,6 +28,15 @@ async def _store_or_503(action):
             status_code=503, detail=f"database unavailable: {exc}") from exc
 
 
+async def _db_or_503(coro):
+    """Await any DB coroutine, mapping connection/query failure to HTTP 503."""
+    try:
+        return await coro
+    except (OSError, asyncpg.PostgresError) as exc:
+        raise HTTPException(
+            status_code=503, detail=f"database unavailable: {exc}") from exc
+
+
 class BacktestRequest(BaseModel):
     strategy: str = "sma"
     params: dict[str, Any] = Field(default_factory=lambda: {
@@ -35,6 +46,8 @@ class BacktestRequest(BaseModel):
     volatility: float = 0.001
     risk_per_trade: str = "0.01"
     persist: bool = False
+    source: str = "sim"
+    instrument: str = "EUR_USD"
 
 
 class BacktestResponse(BaseModel):
@@ -56,6 +69,29 @@ class StoredResultResponse(BaseModel):
     bars: int
     total_return: float
     sharpe: float
+
+
+class IngestRequest(BaseModel):
+    instrument: str = "EUR_USD"
+    granularity: str = "M1"
+    count: int = Field(default=500, gt=0, le=100000)
+    seed: int = 11
+    start_price: str = "1.10000"
+
+
+class IngestResponse(BaseModel):
+    instrument: str
+    ingested: int
+
+
+class CandleResponse(BaseModel):
+    time: datetime
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: int
+    complete: bool
 
 
 class SweepRequest(BaseModel):
@@ -81,11 +117,29 @@ async def run_backtest(request: BacktestRequest) -> BacktestResponse:
         strategy = make_strategy(request.strategy, request.params)
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    broker = SimBroker(seed=request.seed, tick_seconds=0,
-                       volatility=request.volatility)
+    if request.source == "stored":
+        candles = await _db_or_503(
+            CandleStore().get_candles(request.instrument, limit=request.bars)
+        )
+        if not candles:
+            raise HTTPException(
+                status_code=400,
+                detail=f"no stored candles for {request.instrument!r}",
+            )
+        broker = ReplayBroker(request.instrument, candles)
+        bars = len(candles)
+    elif request.source == "sim":
+        broker = SimBroker(
+            seed=request.seed, tick_seconds=0, volatility=request.volatility,
+            instruments={request.instrument: "1.10000"},
+        )
+        bars = request.bars
+    else:
+        raise HTTPException(
+            status_code=400, detail=f"unknown source: {request.source!r}")
     risk = FixedFractionalRisk(risk_per_trade=request.risk_per_trade)
-    backtester = Backtester(broker, strategy, "EUR_USD", risk=risk)
-    result = await backtester.run(request.bars)
+    backtester = Backtester(broker, strategy, request.instrument, risk=risk)
+    result = await backtester.run(bars)
 
     result_id: int | None = None
     if request.persist:
@@ -160,3 +214,38 @@ async def list_results(limit: int = 10) -> list[StoredResultResponse]:
 @app.delete("/results/{result_id}", status_code=204)
 async def delete_result(result_id: int) -> None:
     await _store_or_503(lambda store: store.delete(result_id))
+
+
+@app.post("/candles/ingest", response_model=IngestResponse)
+async def ingest_candles(request: IngestRequest) -> IngestResponse:
+    try:
+        ingested = await ingest_synthetic(
+            request.instrument,
+            granularity=request.granularity,
+            count=request.count,
+            seed=request.seed,
+            start_price=request.start_price,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (OSError, asyncpg.PostgresError) as exc:
+        raise HTTPException(
+            status_code=503, detail=f"database unavailable: {exc}") from exc
+    return IngestResponse(instrument=request.instrument, ingested=ingested)
+
+
+@app.get("/candles", response_model=list[CandleResponse])
+async def list_candles(instrument: str, limit: int = 100) -> list[CandleResponse]:
+    candles = await _db_or_503(CandleStore().get_candles(instrument, limit=limit))
+    return [
+        CandleResponse(
+            time=candle.time,
+            open=float(candle.open),
+            high=float(candle.high),
+            low=float(candle.low),
+            close=float(candle.close),
+            volume=candle.volume,
+            complete=candle.complete,
+        )
+        for candle in candles
+    ]
